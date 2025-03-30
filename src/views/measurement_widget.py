@@ -2,15 +2,17 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QPushButton, QComboBox, QGroupBox, 
                             QRadioButton, QButtonGroup, QSpacerItem,
                             QSizePolicy, QLCDNumber, QTableWidget,
-                            QTableWidgetItem, QHeaderView)
+                            QTableWidgetItem, QHeaderView, QMessageBox)
 from PyQt5.QtCore import Qt, pyqtSlot, QTimer
+import time
 
 class MeasurementWidget(QWidget):
-    def __init__(self, sensor_controller, data_controller):
+    def __init__(self, sensor_controller, data_controller, aod_controller=None):
         super().__init__()
         
         self.sensor_controller = sensor_controller
         self.data_controller = data_controller
+        self.aod_controller = aod_controller  # Добавляем контроллер АОЯ
         
         # Create timer for sensor status updates
         self.status_timer = QTimer()
@@ -20,17 +22,17 @@ class MeasurementWidget(QWidget):
         self.main_layout = QVBoxLayout(self)
         
         # Create measurement control group
-        self.control_group = QGroupBox("Measurement Control")
+        self.control_group = QGroupBox("Настройка измерений")
         self.control_layout = QVBoxLayout()
         self.control_group.setLayout(self.control_layout)
         
         # Measurement mode selection
         self.mode_layout = QHBoxLayout()
-        self.mode_label = QLabel("Measurement Mode:")
+        self.mode_label = QLabel("Режим измерений:")
         
         self.mode_group = QButtonGroup(self)
-        self.single_mode_radio = QRadioButton("Single")
-        self.continuous_mode_radio = QRadioButton("Continuous")
+        self.single_mode_radio = QRadioButton("Единичное")
+        self.continuous_mode_radio = QRadioButton("Непрерывное")
         self.single_mode_radio.setChecked(True)
         
         self.mode_group.addButton(self.single_mode_radio)
@@ -40,201 +42,363 @@ class MeasurementWidget(QWidget):
         self.mode_layout.addWidget(self.single_mode_radio)
         self.mode_layout.addWidget(self.continuous_mode_radio)
         self.mode_layout.addStretch(1)
-        
         self.control_layout.addLayout(self.mode_layout)
         
-        # Measurement speed selection (for continuous mode)
-        self.speed_layout = QHBoxLayout()
-        self.speed_label = QLabel("Measurement Speed:")
-        self.speed_combo = QComboBox()
-        self.speed_combo.addItems(["Auto", "Fast", "Slow"])
-        self.speed_layout.addWidget(self.speed_label)
-        self.speed_layout.addWidget(self.speed_combo)
-        self.speed_layout.addStretch(1)
+        # Measurement rate selection (for continuous mode)
+        self.rate_layout = QHBoxLayout()
+        self.rate_label = QLabel("Скорость измерений:")
+        self.rate_combo = QComboBox()
+        self.rate_combo.addItems(["Авто", "Быстро", "Медленно"])
+        self.rate_combo.setEnabled(False)  # Disabled initially
         
-        self.control_layout.addLayout(self.speed_layout)
+        self.rate_layout.addWidget(self.rate_label)
+        self.rate_layout.addWidget(self.rate_combo)
+        self.rate_layout.addStretch(1)
+        self.control_layout.addLayout(self.rate_layout)
         
         # Measurement buttons
         self.buttons_layout = QHBoxLayout()
-        self.measure_button = QPushButton("Measure")
-        self.stop_button = QPushButton("Stop")
+        self.measure_button = QPushButton("Измерить")
+        self.stop_button = QPushButton("Остановить")
         self.stop_button.setEnabled(False)
-        self.clear_button = QPushButton("Clear Data")
+        self.reset_button = QPushButton("Очистить данные")
         
         self.buttons_layout.addWidget(self.measure_button)
         self.buttons_layout.addWidget(self.stop_button)
-        self.buttons_layout.addWidget(self.clear_button)
-        
+        self.buttons_layout.addWidget(self.reset_button)
         self.control_layout.addLayout(self.buttons_layout)
         
+        # Add the control group to the main layout
         self.main_layout.addWidget(self.control_group)
         
-        # Create current reading display group
-        self.reading_group = QGroupBox("Current Reading")
-        self.reading_layout = QHBoxLayout()
-        self.reading_group.setLayout(self.reading_layout)
+        # Create current measurement display group
+        self.display_group = QGroupBox("Текущее измерение")
+        self.display_layout = QHBoxLayout()
+        self.display_group.setLayout(self.display_layout)
         
         # Distance LCD
-        self.distance_layout = QVBoxLayout()
-        self.distance_label = QLabel("Distance (m)")
-        self.distance_lcd = QLCDNumber(6)  # 6 digits
+        self.distance_lcd_layout = QVBoxLayout()
+        self.distance_lcd = QLCDNumber()
+        self.distance_lcd.setDigitCount(6)
         self.distance_lcd.setSegmentStyle(QLCDNumber.Flat)
-        self.distance_lcd.setMinimumHeight(60)
-        self.distance_layout.addWidget(self.distance_label, alignment=Qt.AlignCenter)
-        self.distance_layout.addWidget(self.distance_lcd)
+        self.distance_lcd.setStyleSheet("background-color: #f0f0f0;")
+        self.distance_lcd_label = QLabel("Расстояние (м)")
+        self.distance_lcd_label.setAlignment(Qt.AlignCenter)
+        
+        self.distance_lcd_layout.addWidget(self.distance_lcd)
+        self.distance_lcd_layout.addWidget(self.distance_lcd_label)
         
         # Quality LCD
-        self.quality_layout = QVBoxLayout()
-        self.quality_label = QLabel("Signal Quality")
-        self.quality_lcd = QLCDNumber(3)  # 3 digits
+        self.quality_lcd_layout = QVBoxLayout()
+        self.quality_lcd = QLCDNumber()
+        self.quality_lcd.setDigitCount(3)
         self.quality_lcd.setSegmentStyle(QLCDNumber.Flat)
-        self.quality_lcd.setMinimumHeight(60)
-        self.quality_layout.addWidget(self.quality_label, alignment=Qt.AlignCenter)
-        self.quality_layout.addWidget(self.quality_lcd)
+        self.quality_lcd.setStyleSheet("background-color: #f0f0f0;")
+        self.quality_lcd_label = QLabel("Качество сигнала (%)")
+        self.quality_lcd_label.setAlignment(Qt.AlignCenter)
         
-        # Sensor status
+        self.quality_lcd_layout.addWidget(self.quality_lcd)
+        self.quality_lcd_layout.addWidget(self.quality_lcd_label)
+        
+        # Status display
         self.status_layout = QVBoxLayout()
-        self.status_label = QLabel("Sensor Status")
-        self.temp_label = QLabel("Temp: N/A")
-        self.voltage_label = QLabel("Voltage: N/A")
-        self.status_layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
-        self.status_layout.addWidget(self.temp_label)
-        self.status_layout.addWidget(self.voltage_label)
+        self.laser_status_label = QLabel("Лазер: Выкл")
+        self.measurement_status_label = QLabel("Измерение: Остановлено")
+        self.data_count_label = QLabel("Кол-во измерений: 0")
         
-        self.reading_layout.addLayout(self.distance_layout)
-        self.reading_layout.addLayout(self.quality_layout)
-        self.reading_layout.addLayout(self.status_layout)
+        self.status_layout.addWidget(self.laser_status_label)
+        self.status_layout.addWidget(self.measurement_status_label)
+        self.status_layout.addWidget(self.data_count_label)
+        self.status_layout.addStretch(1)
         
-        self.main_layout.addWidget(self.reading_group)
+        # Add layouts to display group
+        self.display_layout.addLayout(self.distance_lcd_layout)
+        self.display_layout.addLayout(self.quality_lcd_layout)
+        self.display_layout.addLayout(self.status_layout)
         
-        # Create measurements table group
-        self.table_group = QGroupBox("Measurement History")
-        self.table_layout = QVBoxLayout()
-        self.table_group.setLayout(self.table_layout)
+        # Add display group to main layout
+        self.main_layout.addWidget(self.display_group)
         
-        self.measurements_table = QTableWidget(0, 3)  # 0 rows, 3 columns initially
-        headers = ["Time", "Distance (m)", "Quality"]
-        self.measurements_table.setHorizontalHeaderLabels(headers)
-        self.measurements_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        # Create results table group
+        self.results_group = QGroupBox("История измерений")
+        self.results_layout = QVBoxLayout()
+        self.results_group.setLayout(self.results_layout)
         
-        self.table_layout.addWidget(self.measurements_table)
+        # Results table
+        self.results_table = QTableWidget(0, 3)
+        self.results_table.setHorizontalHeaderLabels(["Время", "Расстояние (м)", "Качество (%)"])
+        self.results_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         
-        self.main_layout.addWidget(self.table_group)
+        self.results_layout.addWidget(self.results_table)
+        
+        # Add results group to main layout
+        self.main_layout.addWidget(self.results_group)
+        
+        # Добавляем интеграцию с АОЯ, если контроллер предоставлен
+        if self.aod_controller:
+            self.setup_aod_integration()
         
         # Connect signals
         self.connect_signals()
+    
+    def setup_aod_integration(self):
+        """Настройка интеграции с акустооптической ячейкой"""
+        # Создаем группу для АОЯ
+        self.aod_group = QGroupBox("Сканирование с АОЯ")
+        self.aod_layout = QVBoxLayout()
+        self.aod_group.setLayout(self.aod_layout)
         
+        # Информация о состоянии АОЯ
+        self.aod_status_label = QLabel("Статус АОЯ: Не подключено")
+        self.aod_layout.addWidget(self.aod_status_label)
+        
+        # Создаем элементы управления для АОЯ
+        pattern_layout = QHBoxLayout()
+        pattern_label = QLabel("Шаблон сканирования:")
+        self.pattern_combo = QComboBox()
+        
+        # Заполняем список шаблонов
+        patterns = self.aod_controller.get_available_patterns()
+        for pattern_id, pattern_data in patterns.items():
+            self.pattern_combo.addItem(pattern_data['name'], pattern_id)
+        
+        pattern_layout.addWidget(pattern_label)
+        pattern_layout.addWidget(self.pattern_combo)
+        
+        # Кнопки управления сканированием
+        button_layout = QHBoxLayout()
+        self.scan_aod_button = QPushButton("Запустить сканирование с АОЯ")
+        self.stop_aod_button = QPushButton("Остановить сканирование АОЯ")
+        self.stop_aod_button.setEnabled(False)
+        
+        button_layout.addWidget(self.scan_aod_button)
+        button_layout.addWidget(self.stop_aod_button)
+        
+        # Добавляем макеты в группу
+        self.aod_layout.addLayout(pattern_layout)
+        self.aod_layout.addLayout(button_layout)
+        
+        # Добавляем группу в основной макет
+        self.main_layout.addWidget(self.aod_group)
+        
+        # Подключаем сигналы
+        self.scan_aod_button.clicked.connect(self.start_aod_scanning)
+        self.stop_aod_button.clicked.connect(self.stop_aod_scanning)
+        
+        # Подключаем сигналы от контроллера АОЯ
+        self.aod_controller.connection_changed.connect(self.on_aod_connection_changed)
+        self.aod_controller.scan_started.connect(self.on_aod_scan_started)
+        self.aod_controller.scan_stopped.connect(self.on_aod_scan_stopped)
+        
+        # Обновляем состояние подключения
+        self.update_aod_status()
+    
     def connect_signals(self):
-        # Button connections
-        self.measure_button.clicked.connect(self.start_measurement)
-        self.stop_button.clicked.connect(self.stop_measurement)
-        self.clear_button.clicked.connect(self.clear_measurements)
-        
-        # Radio button connections
-        self.single_mode_radio.toggled.connect(self.update_mode_ui)
-        
-        # Sensor controller connections
-        self.sensor_controller.measurement_taken.connect(self.update_current_reading)
-        self.sensor_controller.status_updated.connect(self.update_sensor_status)
-        self.sensor_controller.connection_changed.connect(self.update_ui_on_connection)
-        
-        # Data controller connections
-        self.data_controller.data_updated.connect(self.update_measurements_table)
-        
-        # Timer connection
-        self.status_timer.timeout.connect(self.get_sensor_status)
+        """Подключение сигналов"""
+        # Mode selection
+        self.single_mode_radio.toggled.connect(self.on_mode_changed)
+        self.continuous_mode_radio.toggled.connect(self.on_mode_changed)
     
-    @pyqtSlot()
-    def update_mode_ui(self):
-        is_single = self.single_mode_radio.isChecked()
-        self.speed_combo.setEnabled(not is_single)
+        # Button actions
+        self.measure_button.clicked.connect(self.on_measure)
+        self.stop_button.clicked.connect(self.on_stop_measurement)
+        self.reset_button.clicked.connect(self.on_reset_data)
     
-    @pyqtSlot()
-    def start_measurement(self):
+        # Sensor controller signals
+        self.sensor_controller.measurement_taken.connect(self.on_measurement_taken)
+    
+        # Data controller signals
+        self.data_controller.data_updated.connect(self.on_data_updated)
+    
+        # Status timer
+        self.status_timer.timeout.connect(self.update_sensor_status)
+    
+    def start_aod_scanning(self):
+        """Запускает сканирование с использованием АОЯ"""
+        if not self.aod_controller or not self.aod_controller.is_connected():
+            QMessageBox.warning(self, "Ошибка", "АОЯ не подключена.")
+            return
+        
         if not self.sensor_controller.serial_handler.is_connected:
+            QMessageBox.warning(self, "Ошибка", "Датчик LiDAR не подключен.")
+            return
+        
+        pattern_id = self.pattern_combo.currentData()
+        if not pattern_id:
+            return
+        
+        # Запускаем непрерывное измерение на лидаре
+        if not self.continuous_mode_radio.isChecked():
+            self.continuous_mode_radio.setChecked(True)
+        
+        # Если измерение уже запущено, продолжаем; если нет - запускаем
+        if self.stop_button.isEnabled():
+            # Уже запущено
+            pass
+        else:
+            self.on_measure()
+        
+        # Запускаем сканирование на АОЯ
+        self.aod_controller.start_pattern(pattern_id)
+    
+    def stop_aod_scanning(self):
+        """Останавливает сканирование с использованием АОЯ"""
+        # Останавливаем сканирование на АОЯ
+        if self.aod_controller:
+            self.aod_controller.stop_pattern()
+        
+        # Останавливаем измерение на лидаре
+        self.on_stop_measurement()
+    
+    def update_aod_status(self):
+        """Обновляет отображение статуса АОЯ"""
+        if not self.aod_controller:
+            return
+        
+        is_connected = self.aod_controller.is_connected()
+        is_scanning = self.aod_controller.is_scanning()
+        
+        status_text = "Статус АОЯ: "
+        if is_connected:
+            if is_scanning:
+                pattern_name = self.pattern_combo.currentText()
+                status_text += f"Подключено, сканирование ({pattern_name})"
+            else:
+                status_text += "Подключено, ожидание"
+        else:
+            status_text += "Не подключено"
+        
+        self.aod_status_label.setText(status_text)
+        self.scan_aod_button.setEnabled(is_connected and not is_scanning)
+        self.stop_aod_button.setEnabled(is_connected and is_scanning)
+    
+    @pyqtSlot(bool)
+    def on_aod_connection_changed(self, connected):
+        """Обработчик изменения статуса подключения АОЯ"""
+        self.update_aod_status()
+    
+    @pyqtSlot(str)
+    def on_aod_scan_started(self, pattern_id):
+        """Обработчик начала сканирования на АОЯ"""
+        self.scan_aod_button.setEnabled(False)
+        self.stop_aod_button.setEnabled(True)
+        self.update_aod_status()
+    
+    @pyqtSlot()
+    def on_aod_scan_stopped(self):
+        """Обработчик окончания сканирования на АОЯ"""
+        self.scan_aod_button.setEnabled(True)
+        self.stop_aod_button.setEnabled(False)
+        self.update_aod_status()
+    
+    @pyqtSlot(bool)
+    def on_mode_changed(self, checked):
+        """Обработчик изменения режима измерения"""
+        if checked:
+            # Enable/disable rate combo box based on mode
+            self.rate_combo.setEnabled(self.continuous_mode_radio.isChecked())
+    
+    @pyqtSlot()
+    def on_measure(self):
+        """Обработчик нажатия кнопки измерения"""
+        if not self.sensor_controller.serial_handler.is_connected:
+            QMessageBox.warning(self, "Ошибка", "Датчик не подключен.")
             return
         
         if self.single_mode_radio.isChecked():
             # Single measurement
-            self.sensor_controller.get_single_measurement()
+            self.measure_button.setEnabled(False)
+            result = self.sensor_controller.get_single_measurement()
+            self.measure_button.setEnabled(True)
+            
+            if not result:
+                QMessageBox.warning(self, "Ошибка", "Не удалось выполнить измерение.")
         else:
             # Continuous measurement
-            measurement_type = self.speed_combo.currentText().lower()
-            success = self.sensor_controller.start_continuous_measurement(measurement_type)
-            
-            if success:
-                self.measure_button.setEnabled(False)
-                self.stop_button.setEnabled(True)
-                self.single_mode_radio.setEnabled(False)
-                self.continuous_mode_radio.setEnabled(False)
+            rate_mode = self.rate_combo.currentText()
+            if rate_mode == "Быстро":
+                measurement_type = "fast"
+            elif rate_mode == "Медленно":
+                measurement_type = "slow"
+            else:
+                measurement_type = "auto"
                 
-                # Start timer for periodic status updates
-                self.status_timer.start()
+            self.sensor_controller.start_continuous_measurement(measurement_type)
+            
+            # Update UI
+            self.measure_button.setEnabled(False)
+            self.stop_button.setEnabled(True)
+            self.status_timer.start()
+            self.laser_status_label.setText("Лазер: Вкл")
+            self.measurement_status_label.setText("Измерение: Активно")
     
     @pyqtSlot()
-    def stop_measurement(self):
+    def on_stop_measurement(self):
+        """Обработчик нажатия кнопки остановки измерения"""
         self.sensor_controller.stop_continuous_measurement()
+        
+        # Update UI
         self.measure_button.setEnabled(True)
         self.stop_button.setEnabled(False)
-        self.single_mode_radio.setEnabled(True)
-        self.continuous_mode_radio.setEnabled(True)
-        
-        # Stop status update timer
         self.status_timer.stop()
+        self.laser_status_label.setText("Лазер: Выкл")
+        self.measurement_status_label.setText("Измерение: Остановлено")
     
     @pyqtSlot()
-    def clear_measurements(self):
-        reply = QMessageBox.question(self, 'Clear Measurements', 
-                                     'Are you sure you want to clear all measurements?',
-                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            self.data_controller.clear_data()
-            self.measurements_table.setRowCount(0)
+    def on_reset_data(self):
+        """Обработчик нажатия кнопки сброса данных"""
+        self.data_controller.clear_data()
+        self.results_table.setRowCount(0)
+        self.data_count_label.setText("Кол-во измерений: 0")
+        self.distance_lcd.display(0.0)
+        self.quality_lcd.display(0)
     
     @pyqtSlot(float, int)
-    def update_current_reading(self, distance, quality):
-        self.distance_lcd.display(f"{distance:.3f}")
+    def on_measurement_taken(self, distance, quality):
+        """Обработчик получения нового измерения"""
+        # Add measurement to data controller
+        self.data_controller.add_measurement(distance, quality)
+        
+        # Update LCD displays
+        self.distance_lcd.display(distance)
         self.quality_lcd.display(quality)
     
-    @pyqtSlot(float, float)
-    def update_sensor_status(self, temp, voltage):
-        self.temp_label.setText(f"Temp: {temp}°C")
-        self.voltage_label.setText(f"Voltage: {voltage}V")
-
     @pyqtSlot()
-    def update_measurements_table(self):
-        # Get the last 100 measurements
-        measurements = self.data_controller.model.get_measurements(100)
+    def update_sensor_status(self):
+        """Обновление статуса датчика"""
+        # Запрашиваем обновление статуса у контроллера
+        self.sensor_controller.get_sensor_status()
+    
+    @pyqtSlot()
+    def on_data_updated(self):
+        """Обработчик обновления данных"""
+        # Get latest measurements
+        measurements = self.data_controller.model.measurements
         
-        # Update table
-        self.measurements_table.setRowCount(len(measurements))
+        # Update data count label
+        count = len(measurements)
+        self.data_count_label.setText(f"Кол-во измерений: {count}")
         
-        # Add items in reverse order (newest at top)
+        # Update results table
+        self.results_table.setRowCount(count)
+        
+        # Add new rows to table
         for i, (timestamp, distance, quality) in enumerate(reversed(measurements)):
-            # Format timestamp as time
-            from datetime import datetime
-            time_str = datetime.fromtimestamp(timestamp).strftime('%H:%M:%S.%f')[:-3]
+            row = count - i - 1
             
+            # Convert timestamp to readable time
+            time_str = time.strftime("%H:%M:%S", time.localtime(timestamp))
+            
+            # Create table items
             time_item = QTableWidgetItem(time_str)
             distance_item = QTableWidgetItem(f"{distance:.3f}")
-            quality_item = QTableWidgetItem(str(quality))
+            quality_item = QTableWidgetItem(f"{quality}")
             
-            self.measurements_table.setItem(i, 0, time_item)
-            self.measurements_table.setItem(i, 1, distance_item)
-            self.measurements_table.setItem(i, 2, quality_item)
-    
-    @pyqtSlot(bool)
-    def update_ui_on_connection(self, connected):
-        self.measure_button.setEnabled(connected)
-        self.clear_button.setEnabled(connected)
+            # Set items to table
+            self.results_table.setItem(row, 0, time_item)
+            self.results_table.setItem(row, 1, distance_item)
+            self.results_table.setItem(row, 2, quality_item)
         
-        if not connected:
-            self.stop_measurement()  # Make sure to stop any ongoing measurements
-    
-    @pyqtSlot()
-    def get_sensor_status(self):
-        """Get sensor status periodically during continuous measurements"""
-        if self.sensor_controller.serial_handler.is_connected:
-            self.sensor_controller.get_sensor_status()
-
-from PyQt5.QtWidgets import QMessageBox
+        # Scroll to the latest measurement
+        if count > 0:
+            self.results_table.scrollToBottom()

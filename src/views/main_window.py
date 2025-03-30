@@ -7,13 +7,15 @@ from .connection_widget import ConnectionWidget
 from .measurement_widget import MeasurementWidget
 from .visualization_widget import VisualizationWidget
 from .statistics_widget import StatisticsWidget
+from .aod_widget import AODWidget  # Добавляем импорт нового виджета
 
 class MainWindow(QMainWindow):
-    def __init__(self, sensor_controller, data_controller):
+    def __init__(self, sensor_controller, data_controller, aod_controller=None):  # Добавляем аргумент
         super().__init__()
         
         self.sensor_controller = sensor_controller
         self.data_controller = data_controller
+        self.aod_controller = aod_controller  # Сохраняем контроллер АОЯ
         
         self.setWindowTitle("LiDAR Measurement Application")
         self.resize(900, 600)
@@ -33,11 +35,19 @@ class MainWindow(QMainWindow):
         self.visualization_widget = VisualizationWidget(self.data_controller)
         self.statistics_widget = StatisticsWidget(self.data_controller)
         
+        # Добавляем виджет АОЯ, если контроллер предоставлен
+        if self.aod_controller:
+            self.aod_widget = AODWidget(self.aod_controller)
+        
         # Add widgets to tabs
-        self.tab_widget.addTab(self.connection_widget, "Connection")
-        self.tab_widget.addTab(self.measurement_widget, "Measurement")
-        self.tab_widget.addTab(self.visualization_widget, "Visualization")
-        self.tab_widget.addTab(self.statistics_widget, "Statistics")
+        self.tab_widget.addTab(self.connection_widget, "Подключение")
+        self.tab_widget.addTab(self.measurement_widget, "Измерение")
+        self.tab_widget.addTab(self.visualization_widget, "Визуализация")
+        self.tab_widget.addTab(self.statistics_widget, "Статистика")
+        
+        # Добавляем вкладку АОЯ, если контроллер предоставлен
+        if self.aod_controller:
+            self.tab_widget.addTab(self.aod_widget, "Акустооптическая ячейка")
         
         # Set up menu
         self.create_menus()

@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import QApplication
 from src.views.main_window import MainWindow
 from src.controllers.sensor_controller import SensorController
 from src.controllers.data_controller import DataController
+from src.controllers.aod_controller import AODController  # Добавляем импорт
 from src.utils.serial_handler import SerialHandler
 
 def main():
@@ -14,9 +15,10 @@ def main():
     serial_handler = SerialHandler()
     sensor_controller = SensorController(serial_handler)
     data_controller = DataController()
+    aod_controller = AODController()  # Создаем контроллер АОЯ
     
-    # Initialize main window
-    window = MainWindow(sensor_controller, data_controller)
+    # Initialize main window with all controllers
+    window = MainWindow(sensor_controller, data_controller, aod_controller)
     window.show()
     
     sys.exit(app.exec_())
