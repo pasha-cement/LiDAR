@@ -1,0 +1,14 @@
+# PyQt5 framework for the GUI
+PyQt5
+
+# Serial communication library
+pyserial
+
+# Plotting library
+matplotlib
+
+# Numerical library (often used with matplotlib/plotting)
+numpy
+
+# Data manipulation library (used in MeasurementModel, useful for future save/load)
+pandas
